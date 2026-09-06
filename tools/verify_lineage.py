@@ -50,26 +50,68 @@ def check(name: str, ok: bool, detail: str = "") -> None:
         print(f"  FAIL  {name}" + (f" — {detail}" if detail else ""))
 
 
+REQUIRED = {
+    "report": ("report_key", "submitted_by", "content_sha256", "markdown"),
+    "review": ("review_key", "report_key", "reviewer"),
+}
+
+
 def load_all(kind: str) -> dict[str, tuple[dict, pathlib.Path]]:
-    """Collect artifacts of a kind, keyed by their own key field.
+    """Collect artifacts of a kind, keyed by their own identifier.
 
     A review also carries report_key — the report it reviews — so a report is
     identified by having report_key AND NOT review_key. Getting this wrong makes
     a review masquerade as the report it audits.
+
+    Two integrity rules, both failures rather than findings:
+
+      Duplicate identifiers are rejected. Silently keeping whichever file was
+      read last would mean the identifier no longer identifies anything, which
+      defeats the point of a lineage record.
+
+      Missing required fields are rejected. A comparison against a missing value
+      can pass by accident — an absent reviewer is not evidence of independence.
     """
+    key_field = "review_key" if kind == "review" else "report_key"
     out: dict[str, tuple[dict, pathlib.Path]] = {}
-    for path in EXAMPLES.rglob("*.json"):
+    seen: dict[str, pathlib.Path] = {}
+
+    for path in sorted(EXAMPLES.rglob("*.json")):
         try:
             doc = json.loads(path.read_text())
         except json.JSONDecodeError:
+            check(f"{path.relative_to(ROOT)} is valid JSON", False)
             continue
         if not isinstance(doc, dict):
             continue
         is_review = bool(doc.get("review_key"))
-        if kind == "review" and is_review:
-            out[doc["review_key"]] = (doc, path)
-        elif kind == "report" and not is_review and doc.get("report_key"):
-            out[doc["report_key"]] = (doc, path)
+        if (kind == "review") != is_review:
+            continue
+        if kind == "report" and not doc.get("report_key"):
+            continue
+
+        ident = doc[key_field]
+
+        if ident in seen:
+            check(
+                f"{ident} is defined exactly once",
+                False,
+                f"also defined in {seen[ident].relative_to(ROOT)} "
+                f"and {path.relative_to(ROOT)}",
+            )
+            continue
+        seen[ident] = path
+
+        missing = [f for f in REQUIRED[kind] if not doc.get(f)]
+        if missing:
+            check(
+                f"{ident} carries its required fields",
+                False,
+                "missing " + ", ".join(missing),
+            )
+            continue
+
+        out[ident] = (doc, path)
     return out
 
 

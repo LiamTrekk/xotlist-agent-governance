@@ -129,7 +129,7 @@ absence rather than passing over it.
 python3 tools/verify_lineage.py
 ```
 
-Checks four things:
+Checks six things:
 
 1. Each report's `content_sha256` reproduces from its own body, and its sidecar `.md` is
    byte-identical. A content hash that does not reproduce is worse than no hash — it looks
@@ -138,6 +138,10 @@ Checks four things:
    stored.
 3. No agent reviews its own work — the machine check for `SELF_REVIEW`.
 4. Artifacts referenced but absent are reported as absent.
+5. Every governance identifier is defined exactly once. Silently keeping whichever file was
+   read last would mean the identifier no longer identifies anything.
+6. Every artifact carries its required authority fields. A comparison against a missing value
+   can pass by accident — an absent reviewer is not evidence of independence.
 
 ## What the verifier found
 
@@ -150,12 +154,20 @@ Running it against the real records surfaces one genuine gap:
 `REV-000138` (chatgpt) reviewed the same report and *did* pin it. Two reviewers, two
 conventions, one of them weaker.
 
-That inconsistency is left visible rather than edited out, and the check that catches it is
-kept as a hard check rather than softened into a pass. A governance tool that only ever
+That inconsistency is left visible rather than edited out. The check remains mandatory and
+its finding is always surfaced rather than suppressed. A governance tool that only ever
 agrees with its own records is decoration.
 
-Convention gaps are reported as findings and do not fail the run; broken invariants — a hash
-that does not reproduce, a mismatched pin, a self-review — do.
+The distinction the verifier draws:
+
+| | Meaning | Effect |
+|---|---|---|
+| **finding** | A process convention was followed weakly | Always reported, does not fail the run |
+| **failure** | A lineage invariant is broken | Fails the run |
+
+Failures are: a content hash that does not reproduce, a review pinning a hash that does not
+match what is stored, an agent reviewing its own work, a duplicate governance identifier, or
+an artifact missing a required authority field.
 
 ## Scope
 
